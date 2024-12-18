@@ -31,7 +31,6 @@ def initialize_coordinator():
     try:
         logger.info("Initializing MapReduceCoordinator...")
         coordinator = MapReduceCoordinator()
-        # coordinator.task_monitor.start_monitoring()  # Start the monitoring!
         logger.info("MapReduce Coordinator system initialized successfully")
         return coordinator
     except Exception as e:

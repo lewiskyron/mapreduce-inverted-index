@@ -80,7 +80,6 @@ class TaskMonitor:
         for task_id, status in status_data.get("tasks", {}).items():
             if task_id in self.tasks:
                 task = self.tasks[task_id]
-                task.state = status.get("state", task.state)
                 task.last_ping = datetime.now()
                 if status.get("state") == TASK_STATES["COMPLETED"]:
                     task.completion_time = datetime.now()
