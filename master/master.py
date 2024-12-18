@@ -8,7 +8,6 @@ from flask import Flask, jsonify
 import threading
 import logging
 
-
 WIKIPEDIA_BASE_URL = "https://en.wikipedia.org"
 CATEGORY_URL = "https://en.wikipedia.org/wiki/Category:Rock_musical_group_stubs"
 # CATEGORY_URL = "https://en.wikipedia.org/wiki/Category:Living_people"
@@ -23,6 +22,7 @@ logging.basicConfig(
 
 
 app = Flask(__name__)
+logger = logging.getLogger(__name__)
 
 is_scraping = False
 
@@ -193,6 +193,22 @@ def scrape_and_save():
 
     finally:
         is_scraping = False
+
+
+def initialize_application():
+    """Initialize the coordinator and start monitoring"""
+    try:
+        logger.info("Initializing MapReduceCoordinator...")
+        coordinator = MapReduceCoordinator()
+        coordinator.task_monitor.start_monitoring()
+        logger.info("MapReduce system initialized successfully")
+        return coordinator
+    except Exception as e:
+        logger.error(f"Failed to initialize MapReduce system: {e}", exc_info=True)
+        raise
+
+
+coordinator = initialize_application()
 
 
 def main():
