@@ -15,8 +15,7 @@ instance/
 
 # Docker
 .dockerignore
-Dockerfile
-docker-compose.yml
+
 
 # IDEs and Editors
 .vscode/
