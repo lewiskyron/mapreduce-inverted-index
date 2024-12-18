@@ -8,6 +8,8 @@ import nltk
 import os
 import json
 from .constants import INTERMEDIATE_DIR, INTERMEDIATE_FILE_FORMAT
+from datetime import datetime
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -29,30 +31,44 @@ class MapperProcessor:
             self.logger.error(f"Failed to load stopwords: {e}", exc_info=True)
             raise
 
-    def save_intermediate_results(
-        self, mapped_terms: List[Dict], mapper_id: int
-    ) -> str:
+    def save_intermediate_results(self, mapped_terms: List[Dict], mapper_id: int) -> str:
         """
-        Save mapped terms to local disk as intermediate results
+        Save mapped terms to local disk as intermediate results using timestamp-based naming
         Returns the path to the saved file
         """
         try:
             # Ensure intermediate directory exists
             os.makedirs(INTERMEDIATE_DIR, exist_ok=True)
-
-            # Create intermediate file path
-            file_path = os.path.join(
-                INTERMEDIATE_DIR,
-                INTERMEDIATE_FILE_FORMAT.format(
-                    mapper_id=mapper_id, part_id=0  # For now using single part
-                ),
+            
+            # Get list of existing files for this mapper
+            existing_files = [f for f in os.listdir(INTERMEDIATE_DIR) 
+                            if f.startswith(f"mapper_{mapper_id}_part_")]
+            
+            # Get timestamp for unique identification
+            timestamp = int(time.time())
+            
+            # Create intermediate file path with timestamp
+            file_name = INTERMEDIATE_FILE_FORMAT.format(
+                mapper_id=mapper_id,
+                part_id=f"{timestamp}_{len(existing_files)}"
             )
+            file_path = os.path.join(INTERMEDIATE_DIR, file_name)
 
             # Write results to file
             with open(file_path, "w") as f:
-                json.dump(mapped_terms, f, indent=2)
+                metadata = {
+                    "timestamp": timestamp,
+                    "mapper_id": mapper_id,
+                    "num_terms": len(mapped_terms),
+                    "creation_time": datetime.now().isoformat()
+                }
+                json.dump({
+                    "metadata": metadata,
+                    "terms": mapped_terms
+                }, f, indent=2)
 
             self.logger.info(f"Saved intermediate results to {file_path}")
+            self.logger.info(f"Total existing files for mapper {mapper_id}: {len(existing_files) + 1}")
             return file_path
 
         except Exception as e:
@@ -93,10 +109,7 @@ class MapperProcessor:
         text = text.lower()
         text = re.sub(r"[^a-z\s]", "", text)
         tokens = text.split()
-
-        self.logger.debug(f"Tokens before removing stop words: {len(tokens)}")
         filtered_tokens = [token for token in tokens if token not in self.stop_words]
-        self.logger.debug(f"Tokens after removing stop words: {len(filtered_tokens)}")
 
         return filtered_tokens
 
@@ -118,8 +131,6 @@ class MapperProcessor:
 
             terms = self.preprocess_text(text)
             unique_terms = set(terms)
-            logging.info(f"Terms for document {doc_id}: {unique_terms}")
-
             for term in unique_terms:
                 mapped.append({"term": term, "doc_id": doc_id, "url": url})
 

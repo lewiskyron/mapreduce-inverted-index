@@ -136,20 +136,6 @@ class MapperServer:
             self.executor.submit(
                 self.process_map_task, task_id, function_name, urls, doc_id_start
             )
-
-            # function_name = data["function_name"]
-            # urls = data["urls"]
-            # doc_id_start = data.get("doc_id_start", 0)
-
-            # map_function = self.function_registry.get_function(function_name)
-            # self.logger.info(f"Executing {function_name} on {len(urls)} URLs")
-
-            # mapped_terms = map_function(urls, doc_id_start)
-            # intermediate_file = (
-            #     self.function_registry.processor.save_intermediate_results(
-            #         mapped_terms, self.mapper_id
-            #     )
-            # )
             return (
                 jsonify(
                     {

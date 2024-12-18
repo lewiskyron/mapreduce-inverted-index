@@ -34,7 +34,7 @@ class MapReduceCoordinator:
         timestamp = int(time.time() * 1000)  # Current time in milliseconds
         mapper_id = mapper_url.split("/")[-1].replace(":", "_")
         random_component = uuid.uuid4().hex[:6]  # Short random string
-        return f"task_{mapper_id}_{random_component}"
+        return f"task_{random_component}_{mapper_id}"
 
     def distribute_to_mappers(
         self,
@@ -85,12 +85,13 @@ class MapReduceCoordinator:
                     },
                     timeout=MAPPER_TIMEOUT,
                 )
-                task.state = TASK_STATES["IN_PROGRESS"]
 
-                if response.status_code == 200:
+                if response.status_code == 202:
                     self.logger.info(
-                        f"Successfully assigned {len(url_chunk)} URLs to mapper {i}"
+                        f"Task {task_id} successfully assigned and in progress for mapper {mapper_url} with {len(url_chunk)} URLs"
                     )
+                    task.state = TASK_STATES["IN_PROGRESS"]
+
                     results.append(
                         {
                             "mapper_url": mapper_url,
