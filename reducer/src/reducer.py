@@ -204,9 +204,15 @@ class ReducerServer:
                 "last_updated": datetime.now().isoformat(),
             }
 
+
     def register_with_master(self):
         """Register this reducer with the master"""
-        reducer_url = os.getenv("REDUCER_URL", REDUCER_URL_DEFAULT)
+        reducer_url = os.getenv(
+            "REDUCER_URL"
+        )  # Use the explicit REDUCER_URL environment variable
+        if not reducer_url:
+            self.logger.error("REDUCER_URL environment variable not set")
+            return False
 
         for attempt in range(MAX_RETRIES):
             try:
@@ -215,7 +221,7 @@ class ReducerServer:
                 )
                 response = requests.post(
                     f"{self.master_url}/register_reducer",
-                    json={"reducer_url": reducer_url},
+                    json={"reducer_url": reducer_url},  # Use the correct URL
                     timeout=5,
                 )
 

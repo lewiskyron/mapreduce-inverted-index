@@ -30,9 +30,16 @@ class MapperServer:
         self.app.route("/ping", methods=["GET"])(self.handle_ping)
         self.app.route("/get_results", methods=["GET"])(self.get_results)
 
+
     def register_with_master(self):
         """Register this mapper with the master"""
-        mapper_url = os.getenv("MAPPER_URL", "http://mapper-service:5002")
+        mapper_url = os.getenv(
+            "MAPPER_URL"
+        )  # Use the explicit MAPPER_URL environment variable
+        if not mapper_url:
+            self.logger.error("MAPPER_URL environment variable not set")
+            return False
+
         max_retries = 5
         retry_delay = 3  # seconds
 
@@ -43,7 +50,7 @@ class MapperServer:
                 )
                 response = requests.post(
                     f"{self.master_url}/register_mapper",
-                    json={"mapper_url": mapper_url},
+                    json={"mapper_url": mapper_url},  # Use the correct URL
                     timeout=5,
                 )
                 if response.status_code == 200:
@@ -93,7 +100,7 @@ class MapperServer:
                 "result_location": result_location,
                 "last_updated": datetime.now().isoformat(),
             }
-    
+
     def get_results(self):
         """Retrieve intermediate results from specified location"""
         try:
@@ -116,7 +123,7 @@ class MapperServer:
                 # Read the JSON file
                 with open(location, 'r') as f:
                     results = f.read()
-                
+
                 self.logger.info(f"Successfully retrieved results from {location}")
                 return jsonify({
                     "data": results,
