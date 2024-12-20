@@ -1,27 +1,27 @@
 version: '3.8'
 
 services:
-  master:
+  master-service:
     build: ./master
     container_name: master_container
     depends_on:
-      - mapper
+      - mapper-service
     networks:
       - mapreduce_network
     ports:
       - "5001:5001"  # Expose Master on host port 5001
     environment:
-      - MAPPER_URLS=http://mapper:5002 
+      - MAPPER_URLS=http://mapper-service:5002 
     volumes:
       - ./master:/app
     command: python -m src.master  # Changed to use src module
 
-  mapper:
+  mapper-service:
     build: ./mapper
     container_name: mapper_container
     environment:
       - MAPPER_ID=1
-      - MASTER_URL=http://master:5001
+      - MASTER_URL=http://master-service:5001
     networks:
       - mapreduce_network
     ports:
@@ -30,18 +30,20 @@ services:
       - ./mapper:/app
     command: python -m src.mapper  # Changed to use src module
 
-  reducer:
+  reducer-service:
     build: ./reducer
     container_name: reducer_container
-    depends_on:
-      - master
+    environment:
+      - REDUCER_ID=1
+      - MASTER_URL=http://master-service:5001
+      - REDUCER_URL=http://reducer-service:5003
     networks:
       - mapreduce_network
     ports:
-      - "5003:5003"  # Example port for Reducer if needed
+      - "5003:5003"  # Expose Reducer on host port 5003
     volumes:
       - ./reducer:/app
-    command: python reducer.py
+    command: python -m src.reducer  # Changed to use src module
 
 networks:
   mapreduce_network:

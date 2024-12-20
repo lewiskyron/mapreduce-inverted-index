@@ -31,7 +31,7 @@ STATUS = {
 }
 
 # Environment Variables
-ENV_MAPPER_URLS = "MAPPER_URLS"
+MAPPER_URLS = "MAPPER_URLS"
 
 TASK_STATES = {
     "IDLE": "idle",

@@ -17,7 +17,7 @@ class MapperServer:
         self.function_registry = FunctionRegistry()
         self.logger = logging.getLogger(__name__)
         self.mapper_id = int(os.getenv("MAPPER_ID", 0))
-        self.master_url = os.getenv("MASTER_URL", "http://master:5001")
+        self.master_url = os.getenv("MASTER_URL", "http://master-service:5001")
         self.active_tasks = {}
         self.task_lock = threading.Lock()
         self.executor = ThreadPoolExecutor(max_workers=4)
@@ -31,7 +31,7 @@ class MapperServer:
 
     def register_with_master(self):
         """Register this mapper with the master"""
-        mapper_url = f"http://mapper:{5002}"  # Or get from environment
+        mapper_url = os.getenv("MAPPER_URL", "http://mapper-service:5002")
         max_retries = 5
         retry_delay = 3  # seconds
 

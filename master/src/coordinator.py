@@ -23,6 +23,12 @@ class MapReduceCoordinator:
         self.task_monitor.register_worker(mapper_url)
         return {"status": "registered", "mapper_url": mapper_url}
 
+    def register_reducer(self, reducer_url: str):
+        """Register a new reducer"""
+        self.logger.info(f"Registering reducer: {reducer_url}")
+        self.task_monitor.register_worker(reducer_url)
+        return {"status": "registered", "reducer_url": reducer_url}
+
     def generate_task_id(self, mapper_url: str) -> str:
         """
         Generate a unique task ID using various components:

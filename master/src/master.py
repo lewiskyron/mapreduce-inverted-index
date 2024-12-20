@@ -9,7 +9,7 @@ from .constants import (
     LOG_LEVEL,
     MESSAGES,
     STATUS,
-    ENV_MAPPER_URLS,
+    MAPPER_URLS,
 )
 import requests
 from bs4 import BeautifulSoup
@@ -103,6 +103,23 @@ def register_mapper():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/register_reducer", methods=["POST"])
+def register_reducer():
+    """Endpoint for reducers to register themselves"""
+    try:
+        data = request.get_json()
+        reducer_url = data.get("reducer_url")
+        if not reducer_url:
+            return jsonify({"error": "reducer_url is required"}), 400
+
+        result = coordinator.register_reducer(reducer_url)
+        return jsonify(result), 200
+
+    except Exception as e:
+        logger.error(f"Error registering reducer: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/scrape", methods=["POST"])
 def start_scraping():
     """Endpoint to initiate URL scraping and distribution"""
@@ -120,14 +137,17 @@ def start_scraping():
 
     try:
         # Get mapper URLs from environment
-        mapper_urls = os.getenv(ENV_MAPPER_URLS, "").split(",")
+
+        mapper_urls = os.getenv(MAPPER_URLS, "").split(",")
         mapper_urls = [url.strip() for url in mapper_urls if url.strip()]
+        logger.info(f"Configured mapper URLs: {mapper_urls}")
 
         if not mapper_urls:
             raise ValueError(MESSAGES["NO_MAPPERS"])
 
         # Start the scraping process
         logger.info("Starting URL collection")
+        mapper_urls = os.getenv(MAPPER_URLS, "").split(",")
         urls = get_artist_page_urls(CATEGORY_URL)
 
         if not urls:
