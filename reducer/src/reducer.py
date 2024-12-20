@@ -18,7 +18,7 @@ from .constants import (
     REDUCER_HOST,
     REDUCER_PORT,
 )
-
+import json
 
 class ReducerServer:
     def __init__(self):
@@ -88,57 +88,54 @@ class ReducerServer:
             self.logger.error(f"Error requesting mapper data: {e}")
             return jsonify({"error": str(e)}), 500
 
-    def process_reduce_task(
-        self, task_id: str, intermediate_files: List[Dict], output_dir: str
-    ):
-        """Process reduce task in a separate thread (simplified for testing)"""
+    def process_reduce_task(self, task_id: str, mapper_results: List[Dict], output_dir: str):
+        """Process reduce task in a separate thread"""
         try:
             self.logger.info(f"Starting reduce task {task_id}")
             self.update_task_status(task_id, "in_progress")
 
-            # Log the received files information
-            self.logger.info(f"Received {len(intermediate_files)} files to process:")
-            for file_info in intermediate_files:
-                self.logger.info(f"  - Location: {file_info.get('location')}")
-                self.logger.info(f"  - Mapper: {file_info.get('mapper_url')}")
-                self.logger.info(f"  - Task ID: {file_info.get('task_id')}")
+            parsed_results = []
+            for result in mapper_results:
+                data_field = result.get('data')
 
-            # Simulate processing time
-            time.sleep(2)
+                # If 'data' is present and is a string, attempt to parse as JSON
+                if isinstance(data_field, str):
+                    try:
+                        parsed_data = json.loads(data_field)
+                        parsed_results.append(parsed_data)
+                    except json.JSONDecodeError as e:
+                        # Log a warning and skip this specific result, rather than failing the whole task
+                        self.logger.warning(
+                            f"Failed to parse 'data' field as JSON. Skipping this result. Error: {e}"
+                        )
+                else:
+                    # If 'data' is already a dictionary or if data_field doesn't exist, handle accordingly
+                    if isinstance(data_field, dict):
+                        parsed_results.append(data_field)
+                    else:
+                        # If there's no 'data' field or it's neither a string nor a dict,
+                        # you can either skip or handle differently.
+                        self.logger.warning(
+                            "No parsable 'data' field found in mapper result. Skipping this result."
+                        )
 
-            # Simulate successful completion
-            mock_output_file = f"{output_dir}/result_{task_id}.json"
-            self.logger.info(f"Reduce task {task_id} processed successfully")
-            self.update_task_status(task_id, "completed", mock_output_file)
+            inverted_index = self.processor.process_intermediate_results(parsed_results)
+            logging.info(f"This is the length of the inverted_index{len(inverted_index)}")
+            output_file = self.processor.save_final_index(inverted_index, output_dir)
 
+            self.logger.info(
+                f"Reduce task {task_id} completed successfully. Results saved to {output_file}"
+            )
+            self.update_task_status(task_id, "completed", output_file)
         except Exception as e:
             self.logger.error(f"Error processing reduce task {task_id}: {e}")
             self.update_task_status(task_id, "failed")
-
-    # def process_reduce_task(
-    #     self, task_id: str, mapper_results: List[Dict], output_dir: str
-    # ):
-    #     """Process reduce task in a separate thread"""
-    #     try:
-    #         self.update_task_status(task_id, "in_progress")
-
-    #         # Process intermediate results into final inverted index
-    #         inverted_index = self.processor.process_intermediate_results(mapper_results)
-
-    #         # Save final results
-    #         output_file = self.processor.save_final_index(inverted_index, output_dir)
-    #         self.update_task_status(task_id, "completed", output_file)
-
-    #     except Exception as e:
-    #         self.logger.error(f"Error processing reduce task {task_id}: {e}")
-    #         self.update_task_status(task_id, "failed")
 
     def reduce_results(self):
         """Handle reduction requests"""
         try:
             data = request.get_json()
             task_id = data.get("task_id")
-            # Change to match what master sends
             intermediate_files = data.get("intermediate_files", [])
             output_dir = data.get("output_dir", OUTPUT_DIR_DEFAULT)
 
@@ -149,11 +146,40 @@ class ReducerServer:
                     "received": data
                 }), 400
 
-            # Submit task to thread pool
+            # First fetch the data from all mappers
+            combined_results = []
+            for file_info in intermediate_files:
+                mapper_url = file_info.get("mapper_url")
+                location = file_info.get("location")
+
+                self.logger.info(f"Requesting data from mapper {mapper_url} at location {location}")
+                try:
+                    response = requests.get(
+                        f"{mapper_url}/get_results",
+                        params={"location": location},
+                        timeout=30
+                    )
+
+                    if response.status_code == 200:
+                        mapper_data = response.json()
+                        self.logger.info(f"Successfully received data from mapper {mapper_url}")
+                        combined_results.append(mapper_data)
+                    else:
+                        self.logger.error(f"Failed to get data from mapper {mapper_url}. Status: {response.status_code}")
+                        return jsonify({
+                            "error": f"Failed to fetch data from mapper {mapper_url}"
+                        }), 500
+                except Exception as e:
+                    self.logger.error(f"Error requesting data from mapper {mapper_url}: {e}")
+                    return jsonify({
+                        "error": f"Error fetching data from mapper: {str(e)}"
+                    }), 500
+
+            # Now submit the task with the collected data
             self.executor.submit(
                 self.process_reduce_task, 
                 task_id, 
-                intermediate_files,  # Pass the intermediate files
+                combined_results,  # Pass the actual mapper data instead of just the file info
                 output_dir
             )
 
@@ -161,7 +187,8 @@ class ReducerServer:
                 "status": "accepted",
                 "task_id": task_id,
                 "message": "Reduce task processing started",
-                "files_count": len(intermediate_files)
+                "files_count": len(intermediate_files),
+                "mappers_data_received": len(combined_results)
             }), 202
 
         except Exception as e:
