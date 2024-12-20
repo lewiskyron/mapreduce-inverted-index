@@ -20,6 +20,4 @@ ENV PYTHONPATH=/app
 # Expose port 5002
 EXPOSE 5002
 
-# Use Gunicorn to run the Flask app with multiple workers
-# Updated to use the module path
-CMD ["gunicorn", "--workers=4", "--bind=0.0.0.0:5002", "src.mapper:app"]
+CMD ["python", "-m", "src.mapper"]

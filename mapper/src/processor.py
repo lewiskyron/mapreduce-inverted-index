@@ -39,21 +39,21 @@ class MapperProcessor:
         try:
             # Ensure intermediate directory exists
             os.makedirs(INTERMEDIATE_DIR, exist_ok=True)
-            
+
             # Get list of existing files for this mapper
             existing_files = [f for f in os.listdir(INTERMEDIATE_DIR) 
                             if f.startswith(f"mapper_{mapper_id}_part_")]
-            
+
             # Get timestamp for unique identification
             timestamp = int(time.time())
-            
+
             # Create intermediate file path with timestamp
             file_name = INTERMEDIATE_FILE_FORMAT.format(
                 mapper_id=mapper_id,
                 part_id=f"{timestamp}_{len(existing_files)}"
             )
             file_path = os.path.join(INTERMEDIATE_DIR, file_name)
-
+          
             # Write results to file
             with open(file_path, "w") as f:
                 metadata = {
@@ -67,14 +67,71 @@ class MapperProcessor:
                     "terms": mapped_terms
                 }, f, indent=2)
 
+            shuffled_path = self.shuffle_intermediate_results(file_path)
+
             self.logger.info(f"Saved intermediate results to {file_path}")
             self.logger.info(f"Total existing files for mapper {mapper_id}: {len(existing_files) + 1}")
-            return file_path
+            return shuffled_path
 
         except Exception as e:
             self.logger.error(f"Error saving intermediate results: {e}")
             raise
 
+    def shuffle_intermediate_results(self, file_path: str) -> str:
+        """
+        Shuffle the mapped terms by grouping identical terms together.
+        Returns path to shuffled file.
+        """
+        try:
+            # Read the original file
+            with open(file_path, "r") as f:
+                data = json.load(f)
+
+            # Group terms by term string
+            term_groups = {}
+            for item in data["terms"]:
+                term = item["term"]
+                if term not in term_groups:
+                    term_groups[term] = []
+                term_groups[term].append({
+                    "doc_id": item["doc_id"],
+                    "url": item["url"]
+                })
+
+            # Convert back to list format, but grouped
+            grouped_terms = []
+            for term, occurrences in sorted(term_groups.items()):  # Sort for consistency
+                grouped_terms.append({
+                    "term": term,
+                    "occurrences": occurrences
+                })
+
+            # Create new file path for shuffled data
+            original_name = os.path.basename(file_path)
+            shuffled_name = f"shuffled_{original_name}"
+            shuffled_path = os.path.join(INTERMEDIATE_DIR, shuffled_name)
+
+            # Update metadata and save shuffled results
+            shuffled_data = {
+                "metadata": {
+                    **data["metadata"],
+                    "shuffled": True,
+                    "shuffle_time": datetime.now().isoformat(),
+                    "unique_terms": len(grouped_terms)
+                },
+                "terms": grouped_terms
+            }
+
+            with open(shuffled_path, "w") as f:
+                json.dump(shuffled_data, f, indent=2)
+
+            self.logger.info(f"Saved shuffled results to {shuffled_path}")
+            self.logger.info(f"Grouped {len(data['terms'])} occurrences into {len(grouped_terms)} unique terms")
+            return shuffled_path
+
+        except Exception as e:
+            self.logger.error(f"Error shuffling intermediate results: {e}")
+            raise
     def fetch_page_content(self, url: str) -> str:
         """Fetches and extracts text content from a Wikipedia page"""
         try:
