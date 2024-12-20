@@ -14,6 +14,7 @@ class MapReduceCoordinator:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.mappers = {}  # Store mapper statuses
+        self.reducers = {}  # Store reducer statuses
         self.task_monitor = TaskMonitor()
         self.task_monitor.start_monitoring()
         logging.info("MapReduceCoordinator initialized")
@@ -50,7 +51,7 @@ class MapReduceCoordinator:
         chunk_size: int = DEFAULT_CHUNK_SIZE,
     ) -> List[Dict]:
         """
-        Distributes URLs to mappers with function references
+        Distributes URLs to mappers with improved load balancing
         """
         results = []
         doc_id_start = 0
@@ -58,7 +59,21 @@ class MapReduceCoordinator:
         map_tasks = []
         queued_tasks = []
 
+        # Calculate chunks per mapper
+        total_urls = len(urls)
+        total_mappers = len(mapper_urls)
+        urls_per_mapper = total_urls // total_mappers
+        extra_urls = total_urls % total_mappers
+
+        current_index = 0
         for i, mapper_url in enumerate(mapper_urls):
+            # Calculate chunk size for this mapper
+            current_chunk_size = urls_per_mapper + (1 if i < extra_urls else 0)
+            url_chunk = urls[current_index : current_index + current_chunk_size]
+            current_index += current_chunk_size
+
+            if not url_chunk:
+                continue
 
             # check for mapper state and find an idle mapper
             worker_state = self.task_monitor.active_workers.get(mapper_url)
@@ -67,20 +82,14 @@ class MapReduceCoordinator:
                 worker_state = self.task_monitor.active_workers.get(mapper_url)
                 self.logger.info(f"Registered new mapper: {mapper_url}")
 
-            # in case we find an idle mapper
             if worker_state.state != "idle":
-                self.logger.warning(f"Mapper {mapper_url} is busy, skipping")
+                self.logger.warning(f"Mapper {mapper_url} is busy, trying next mapper")
                 continue
 
-            start_idx = i * chunk_size
-            end_idx = start_idx + chunk_size
-            url_chunk = urls[start_idx:end_idx]
-
-            if not url_chunk:
-                continue
             task_id = self.generate_task_id(mapper_url)
             map_tasks.append(task_id)
 
+            # Create and register task
             task = TaskState(
                 task_id=task_id,
                 state=TASK_STATES["IDLE"],
@@ -108,14 +117,13 @@ class MapReduceCoordinator:
 
                 if response.status_code == 202:
                     self.logger.info(
-                        f"Task {task_id} successfully assigned and in progress for mapper {mapper_url} with {len(url_chunk)} URLs"
+                        f"Task {task_id} assigned to mapper {mapper_url} with {len(url_chunk)} URLs"
                     )
                     task.state = TASK_STATES["IN_PROGRESS"]
                     self.task_monitor.update_worker_state(
                         mapper_url, "working", task_id
                     )
                     queued_tasks.append(task_id)
-
                     results.append(
                         {
                             "mapper_url": mapper_url,
@@ -129,7 +137,7 @@ class MapReduceCoordinator:
                     task.state = TASK_STATES["FAILED"]
                     self.task_monitor.update_worker_state(mapper_url, "idle", None)
                     self.logger.error(
-                        f"Failed to assign task to mapper {i}: {response.status_code}"
+                        f"Failed to assign task to mapper {mapper_url}: {response.status_code}"
                     )
                     results.append(
                         {
@@ -141,7 +149,7 @@ class MapReduceCoordinator:
                     )
 
             except Exception as e:
-                self.logger.error(f"Error communicating with mapper {i}: {e}")
+                self.logger.error(f"Error communicating with mapper {mapper_url}: {e}")
                 results.append(
                     {
                         "mapper_url": mapper_url,
@@ -150,13 +158,14 @@ class MapReduceCoordinator:
                         "error": str(e),
                     }
                 )
+
         if queued_tasks:
             job = JobState(
                 job_id=job_id,
-                map_tasks=queued_tasks, 
+                map_tasks=queued_tasks,
                 reduce_tasks=[],
                 state=JOB_STATES["MAPPING"],
-                start_time=datetime.now()
+                start_time=datetime.now(),
             )
             self.task_monitor.register_job(job)
 

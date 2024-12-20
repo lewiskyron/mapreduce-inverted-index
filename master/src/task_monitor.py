@@ -5,7 +5,7 @@ import threading
 import time
 import requests
 import logging
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Set
 from .constants import WORKER_TIMEOUT, HEARTBEAT_INTERVAL, TASK_STATES, JOB_STATES
 from .job_state import JobState
 
@@ -34,26 +34,35 @@ class WorkerState:
     state: str  # "idle" or "working"
     last_ping: datetime
     current_task: Optional[str] = None
+    registration_time: datetime = None
+    is_active: bool = True
+    last_failure_time: Optional[datetime] = None
 
 
 class TaskMonitor:
-    def __init__(self, ping_interval: int = HEARTBEAT_INTERVAL):
+
+    def __init__(
+        self,
+        ping_interval: int = HEARTBEAT_INTERVAL,
+    ):
         self.logger = logging.getLogger(__name__)
         self.tasks: Dict[str, TaskState] = {}
         self.jobs: Dict[str, JobState] = {}
         self.active_workers: Dict[str, WorkerState] = {}
-        self.reducers: Dict[str, datetime] = {}  # reducer_url -> last_ping
+        self.registered_workers: Set[str] = set()
         self.ping_interval = ping_interval
         self.monitoring = False
         self.monitor_thread = None
+        self.monitor_lock = threading.Lock()
 
     def start_monitoring(self):
-        """Start the monitoring thread"""
-        self.monitoring = True
-        self.monitor_thread = threading.Thread(target=self._monitoring_loop)
-        self.logger.info("Starting monitoring thread")
-        self.monitor_thread.daemon = True
-        self.monitor_thread.start()
+        """Start the monitoring thread only if there are registered workers"""
+        if self.registered_workers and not self.monitoring:
+            self.monitoring = True
+            self.monitor_thread = threading.Thread(target=self._monitoring_loop)
+            self.logger.info("Starting monitoring thread for registered workers")
+            self.monitor_thread.daemon = True
+            self.monitor_thread.start()
 
     def stop_monitoring(self):
         """Stop the monitoring thread"""
@@ -62,70 +71,102 @@ class TaskMonitor:
             self.monitor_thread.join()
             self.logger.info("Monitoring thread stopped")
 
+
+    def _ping_worker(self, worker_url):
+        """
+        Ping a single worker and update its state based on the response.
+        Returns True if ping was successful, False otherwise.
+        """
+        try:
+            self.logger.info(f"Sending heartbeat to worker at {worker_url}")
+            response = requests.get(f"{worker_url}/ping", timeout=5)
+
+            if response.status_code == 200:
+                worker_state = self.active_workers[worker_url]
+                worker_state.last_ping = datetime.now()
+
+                response_data = response.json()
+                tasks = response_data.get("tasks", {})
+
+                if not tasks:
+                    self.update_worker_state(worker_url, "idle", None)
+                else:
+                    current_task_id = worker_state.current_task
+                    if current_task_id and current_task_id in tasks:
+                        task_state = tasks[current_task_id]["state"]
+                        if task_state == "completed":
+                            self.update_worker_state(worker_url, "idle", None)
+                        else:
+                            self.update_worker_state(worker_url, "working", current_task_id)
+
+                self._update_worker_tasks(worker_url, response.json())
+                self.logger.info(f"Received successful heartbeat from {worker_url}")
+                return True
+
+            else:
+                self._handle_worker_failure(worker_url)
+                return False
+
+        except Exception as e:
+            self.logger.error(f"Error pinging worker {worker_url}: {e}")
+            self._handle_worker_failure(worker_url)
+            return False
+
+
     def _monitoring_loop(self):
-        """Main monitoring loop that pings workers"""
+        """Main monitoring loop that only pings registered workers"""
         while self.monitoring:
-            self._ping_all_workers()
+            with self.monitor_lock:
+                registered_workers = self.registered_workers.copy()
+
+            for worker_url in registered_workers:
+                if (
+                    worker_url in self.active_workers
+                    and self.active_workers[worker_url].is_active
+                ):
+                    self._ping_worker(worker_url)
+
             time.sleep(self.ping_interval)
+
 
     def _ping_all_workers(self):
         """Ping all registered workers and update their status"""
         for worker_url in list(self.active_workers.keys()):
-            try:
-                self.logger.info(f"Sending heartbeat to worker at {worker_url}")
-                response = requests.get(f"{worker_url}/ping", timeout=5)
-                if response.status_code == 200:
-                    worker_state = self.active_workers[worker_url]
-                    worker_state.last_ping = datetime.now()
+            self._ping_worker(worker_url)
 
-                    response_data = response.json()
-                    tasks = response_data.get("tasks", {})
-                    if not tasks:
-                        # No tasks means worker is idle
-                        self.update_worker_state(worker_url, "idle", None)
-                    else:
-                        current_task_id = worker_state.current_task
-                        if current_task_id and current_task_id in tasks:
-                            task_state = tasks[current_task_id]["state"]
-                            if task_state == "completed":
-                                # Task finished, worker is idle again
-                                self.update_worker_state(worker_url, "idle", None)
-                            else:
-                                # Task still in progress
-                                self.update_worker_state(
-                                    worker_url, "working", current_task_id
-                                )
-                    self._update_worker_tasks(worker_url, response.json())
-                    self.logger.info(f"Received successful heartbeat from {worker_url}")
-                else:
-                    self._handle_worker_failure(worker_url)
-            except Exception as e:
-                self.logger.error(f"Error pinging worker {worker_url}: {e}")
-                self._handle_worker_failure(worker_url)
     def register_worker(self, worker_url: str):
         """
         Register a new worker (mapper or reducer based on URL)
-        Stores worker state in active_workers
+        Only starts monitoring after registration
         """
-        current_time = datetime.now()
-        is_reducer = "reducer" in worker_url
+        with self.monitor_lock:
+            current_time = datetime.now()
+            is_reducer = "reducer" in worker_url
 
-        # Create a proper WorkerState object
-        worker_state = WorkerState(
-            type="reducer" if is_reducer else "mapper",
-            state="idle",
-            last_ping=current_time,
-            current_task=None
-        )
+            # Create a proper WorkerState object
+            worker_state = WorkerState(
+                type="reducer" if is_reducer else "mapper",
+                state="idle",
+                last_ping=current_time,
+                registration_time=current_time,
+                is_active=True,
+            )
 
-        self.active_workers[worker_url] = worker_state
-        self.logger.info(f"Registered new {worker_state.type} at {worker_url}")
+            self.active_workers[worker_url] = worker_state
+            self.registered_workers.add(worker_url)
 
-        return {
-            "status": "registered",
-            "worker_url": worker_url,
-            "type": worker_state.type
-        }
+            self.logger.info(f"Registered new {worker_state.type} at {worker_url}")
+
+            # Start monitoring if this is the first worker
+            if not self.monitoring:
+                self.start_monitoring()
+
+            return {
+                "status": "registered",
+                "worker_url": worker_url,
+                "type": worker_state.type,
+                "registration_time": current_time.isoformat(),
+            }
 
     def get_available_reducers(self) -> List[str]:
         """Get list of idle reducer URLs"""
@@ -205,20 +246,32 @@ class TaskMonitor:
                 self.logger.error(f"Error initiating reduce phase: {e}")
 
     def _handle_worker_failure(self, worker_url: str):
+        """Handle worker failure and mark as inactive"""
         self.logger.warning(f"Worker {worker_url} appears to be down")
-        if worker_url in self.active_workers:
-            worker_state = self.active_workers[worker_url]
-            current_task_id = worker_state.current_task
+        with self.monitor_lock:
+            if worker_url in self.active_workers:
+                worker_state = self.active_workers[worker_url]
+                worker_state.is_active = False  # Mark as inactive instead of removing
+                current_task_id = worker_state.current_task
 
-            # If worker had a task, mark it as failed
-            if current_task_id and current_task_id in self.tasks:
-                task = self.tasks[current_task_id]
-                if task.state == TASK_STATES["IN_PROGRESS"]:
-                    task.state = TASK_STATES["FAILED"]
-                    task.retries += 1
+                if current_task_id and current_task_id in self.tasks:
+                    task = self.tasks[current_task_id]
+                    if task.state == TASK_STATES["IN_PROGRESS"]:
+                        task.state = TASK_STATES["FAILED"]
+                        task.retries += 1
 
-            # Remove the failed worker
-            del self.active_workers[worker_url]
+    def deregister_worker(self, worker_url: str):
+        """Deregister a worker from the monitoring system"""
+        with self.monitor_lock:
+            if worker_url in self.registered_workers:
+                self.registered_workers.remove(worker_url)
+                if worker_url in self.active_workers:
+                    del self.active_workers[worker_url]
+                self.logger.info(f"Deregistered worker: {worker_url}")
+
+                # Stop monitoring if no more registered workers
+                if not self.registered_workers:
+                    self.stop_monitoring()
 
     def _update_worker_tasks(self, worker_url: str, status_data: Dict):
         """Update task states based on worker response"""
@@ -226,11 +279,11 @@ class TaskMonitor:
             if task_id in self.tasks:
                 task = self.tasks[task_id]
                 task.last_ping = datetime.now()
-                
+
                 # Get current state for comparison
                 current_state = task.state
                 new_state = status.get("state")
-                
+
                 # If task just completed
                 if (
                     new_state == JOB_STATES["COMPLETED"] 
@@ -240,7 +293,7 @@ class TaskMonitor:
                     task.state = JOB_STATES["COMPLETED"]
                     task.completion_time = datetime.now()
                     task.intermediate_result_location = status.get("result_location")
-                    
+
                     # Check and update affected jobs
                     for job in self.jobs.values():
                         if task_id in job.map_tasks:
@@ -288,15 +341,19 @@ class TaskMonitor:
         }
 
     def get_worker_status(self) -> Dict:
-        """Get status of all workers"""
+        """Get status of registered workers"""
         current_time = datetime.now()
         return {
             worker_url: {
-                "last_ping": last_ping,
-                "alive": (current_time - last_ping).seconds < WORKER_TIMEOUT,
-                "tasks": len(
-                    [t for t in self.tasks.values() if t.worker_url == worker_url]
-                ),
+                "last_ping": worker_state.last_ping,
+                "registration_time": worker_state.registration_time,
+                "is_active": worker_state.is_active,
+                "alive": (current_time - worker_state.last_ping).seconds
+                < WORKER_TIMEOUT,
+                "type": worker_state.type,
+                "state": worker_state.state,
+                "current_task": worker_state.current_task,
             }
-            for worker_url, last_ping in self.active_workers.items()
+            for worker_url, worker_state in self.active_workers.items()
+            if worker_url in self.registered_workers
         }

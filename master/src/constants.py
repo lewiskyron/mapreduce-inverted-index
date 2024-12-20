@@ -2,8 +2,9 @@
 WIKIPEDIA_BASE_URL = "https://en.wikipedia.org"
 CATEGORY_URL = "https://en.wikipedia.org/wiki/Category:Rock_musical_group_stubs"
 HEARTBEAT_INTERVAL = 5
-MAX_RETRIES = 3  # max retries for failed tasks
+MAX_RETRIES = 2 # max retries for failed tasks
 WORKER_TIMEOUT = 10 # seconds before worker considered dead
+FAILURE_RETRY_DELAY = 3  # seconds to wait before retrying failed worker
 
 # Server Configuration
 MASTER_HOST = "0.0.0.0"
