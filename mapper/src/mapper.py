@@ -28,6 +28,7 @@ class MapperServer:
         self.app.route("/test", methods=["GET"])(self.test)
         self.app.route("/map", methods=["POST"])(self.map_terms)
         self.app.route("/ping", methods=["GET"])(self.handle_ping)
+        self.app.route("/get_results", methods=["GET"])(self.get_results)
 
     def register_with_master(self):
         """Register this mapper with the master"""
@@ -92,6 +93,48 @@ class MapperServer:
                 "result_location": result_location,
                 "last_updated": datetime.now().isoformat(),
             }
+    
+    def get_results(self):
+        """Retrieve intermediate results from specified location"""
+        try:
+            location = request.args.get('location')
+            if not location:
+                return jsonify({
+                    "error": "No location specified"
+                }), 400
+
+            self.logger.info(f"Request to get results from location: {location}")
+
+            # Check if file exists
+            if not os.path.exists(location):
+                self.logger.error(f"Results file not found at location: {location}")
+                return jsonify({
+                    "error": "Results file not found"
+                }), 404
+
+            try:
+                # Read the JSON file
+                with open(location, 'r') as f:
+                    results = f.read()
+                
+                self.logger.info(f"Successfully retrieved results from {location}")
+                return jsonify({
+                    "data": results,
+                    "location": location,
+                    "mapper_id": self.mapper_id
+                }), 200
+
+            except Exception as e:
+                self.logger.error(f"Error reading results file: {e}")
+                return jsonify({
+                    "error": f"Error reading results: {str(e)}"
+                }), 500
+
+        except Exception as e:
+            self.logger.error(f"Error in get_results: {e}")
+            return jsonify({
+                "error": str(e)
+            }), 500
 
     def test(self):
         return jsonify({"message": "Mapper is running!"}), 200
