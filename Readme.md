@@ -75,6 +75,11 @@ source .venv/bin/activate
 docker-compose down && docker-compose up --build
 ```
 
+#### 4. To run the scrape job run 
+```bash
+❯ curl -X POST http://localhost:5001/scrape
+```
+
 3. Runing on PwStern Computers
 1. ssh into the machine 
 2. cd into `mapreduce-swarm`
