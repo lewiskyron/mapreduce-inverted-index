@@ -53,7 +53,7 @@ class TaskMonitor:
         self.ping_interval = ping_interval
         self.monitoring = False
         self.monitor_thread = None
-        self.monitor_lock = threading.Lock()
+        self.monitor_lock = threading.RLock()
 
     def start_monitoring(self):
         """Start the monitoring thread only if there are registered workers"""
@@ -70,7 +70,6 @@ class TaskMonitor:
         if self.monitor_thread:
             self.monitor_thread.join()
             self.logger.info("Monitoring thread stopped")
-
 
     def _ping_worker(self, worker_url):
         """
@@ -112,22 +111,19 @@ class TaskMonitor:
             self._handle_worker_failure(worker_url)
             return False
 
-
     def _monitoring_loop(self):
-        """Main monitoring loop that only pings registered workers"""
+        """Main monitoring loop that pings all active workers"""
         while self.monitoring:
             with self.monitor_lock:
-                registered_workers = self.registered_workers.copy()
+                # Make a copy of active workers instead of registered workers
+                active_workers = list(self.active_workers.keys())
 
-            for worker_url in registered_workers:
-                if (
-                    worker_url in self.active_workers
-                    and self.active_workers[worker_url].is_active
-                ):
-                    self._ping_worker(worker_url)
+            for worker_url in active_workers:
+                with self.monitor_lock:
+                    if worker_url in self.active_workers:  # Check if still exists
+                        self._ping_worker(worker_url)
 
             time.sleep(self.ping_interval)
-
 
     def _ping_all_workers(self):
         """Ping all registered workers and update their status"""
@@ -246,19 +242,21 @@ class TaskMonitor:
                 self.logger.error(f"Error initiating reduce phase: {e}")
 
     def _handle_worker_failure(self, worker_url: str):
-        """Handle worker failure and mark as inactive"""
-        self.logger.warning(f"Worker {worker_url} appears to be down")
+        """Handle worker failure by deregistering the worker and handling in-progress tasks"""
+        self.logger.warning(f"Worker {worker_url} appears to be down, deregistering")
+
         with self.monitor_lock:
             if worker_url in self.active_workers:
-                worker_state = self.active_workers[worker_url]
-                worker_state.is_active = False  # Mark as inactive instead of removing
-                current_task_id = worker_state.current_task
-
+                # Handle any in-progress tasks
+                current_task_id = self.active_workers[worker_url].current_task
                 if current_task_id and current_task_id in self.tasks:
                     task = self.tasks[current_task_id]
                     if task.state == TASK_STATES["IN_PROGRESS"]:
                         task.state = TASK_STATES["FAILED"]
                         task.retries += 1
+
+                # Remove the worker
+                self.deregister_worker(worker_url)
 
     def deregister_worker(self, worker_url: str):
         """Deregister a worker from the monitoring system"""
@@ -269,8 +267,8 @@ class TaskMonitor:
                     del self.active_workers[worker_url]
                 self.logger.info(f"Deregistered worker: {worker_url}")
 
-                # Stop monitoring if no more registered workers
-                if not self.registered_workers:
+                # Only stop monitoring if ALL registered workers are gone
+                if len(self.registered_workers) == 0 and len(self.active_workers) == 0:
                     self.stop_monitoring()
 
     def _update_worker_tasks(self, worker_url: str, status_data: Dict):
