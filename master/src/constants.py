@@ -39,3 +39,14 @@ TASK_STATES = {
     "COMPLETED": "completed",
     "FAILED": "failed",
 }
+
+JOB_STATES = {
+    "INITIALIZING": "initializing",
+    "MAPPING": "mapping",
+    "REDUCING": "reducing",
+    "COMPLETED": "completed",
+    "FAILED": "failed",
+}
+
+REDUCER_TIMEOUT = 120  # seconds to wait for reducer to respond
+JOB_CHECK_INTERVAL = 10

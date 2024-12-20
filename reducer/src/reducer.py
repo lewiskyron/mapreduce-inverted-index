@@ -89,49 +89,80 @@ class ReducerServer:
             return jsonify({"error": str(e)}), 500
 
     def process_reduce_task(
-        self, task_id: str, mapper_results: List[Dict], output_dir: str
+        self, task_id: str, intermediate_files: List[Dict], output_dir: str
     ):
-        """Process reduce task in a separate thread"""
+        """Process reduce task in a separate thread (simplified for testing)"""
         try:
+            self.logger.info(f"Starting reduce task {task_id}")
             self.update_task_status(task_id, "in_progress")
 
-            # Process intermediate results into final inverted index
-            inverted_index = self.processor.process_intermediate_results(mapper_results)
+            # Log the received files information
+            self.logger.info(f"Received {len(intermediate_files)} files to process:")
+            for file_info in intermediate_files:
+                self.logger.info(f"  - Location: {file_info.get('location')}")
+                self.logger.info(f"  - Mapper: {file_info.get('mapper_url')}")
+                self.logger.info(f"  - Task ID: {file_info.get('task_id')}")
 
-            # Save final results
-            output_file = self.processor.save_final_index(inverted_index, output_dir)
-            self.update_task_status(task_id, "completed", output_file)
+            # Simulate processing time
+            time.sleep(2)
+
+            # Simulate successful completion
+            mock_output_file = f"{output_dir}/result_{task_id}.json"
+            self.logger.info(f"Reduce task {task_id} processed successfully")
+            self.update_task_status(task_id, "completed", mock_output_file)
 
         except Exception as e:
             self.logger.error(f"Error processing reduce task {task_id}: {e}")
             self.update_task_status(task_id, "failed")
+
+    # def process_reduce_task(
+    #     self, task_id: str, mapper_results: List[Dict], output_dir: str
+    # ):
+    #     """Process reduce task in a separate thread"""
+    #     try:
+    #         self.update_task_status(task_id, "in_progress")
+
+    #         # Process intermediate results into final inverted index
+    #         inverted_index = self.processor.process_intermediate_results(mapper_results)
+
+    #         # Save final results
+    #         output_file = self.processor.save_final_index(inverted_index, output_dir)
+    #         self.update_task_status(task_id, "completed", output_file)
+
+    #     except Exception as e:
+    #         self.logger.error(f"Error processing reduce task {task_id}: {e}")
+    #         self.update_task_status(task_id, "failed")
 
     def reduce_results(self):
         """Handle reduction requests"""
         try:
             data = request.get_json()
             task_id = data.get("task_id")
-            mapper_results = data.get("mapper_results", [])
+            # Change to match what master sends
+            intermediate_files = data.get("intermediate_files", [])
             output_dir = data.get("output_dir", OUTPUT_DIR_DEFAULT)
 
-            if not task_id or not mapper_results:
-                return jsonify({"error": "Missing required parameters"}), 400
+            if not task_id or not intermediate_files:
+                self.logger.error(f"Missing parameters in reduce request. Got: {data}")
+                return jsonify({
+                    "error": "Missing required parameters", 
+                    "received": data
+                }), 400
 
             # Submit task to thread pool
             self.executor.submit(
-                self.process_reduce_task, task_id, mapper_results, output_dir
+                self.process_reduce_task, 
+                task_id, 
+                intermediate_files,  # Pass the intermediate files
+                output_dir
             )
 
-            return (
-                jsonify(
-                    {
-                        "status": "accepted",
-                        "task_id": task_id,
-                        "message": "Reduce task processing started",
-                    }
-                ),
-                202,
-            )
+            return jsonify({
+                "status": "accepted",
+                "task_id": task_id,
+                "message": "Reduce task processing started",
+                "files_count": len(intermediate_files)
+            }), 202
 
         except Exception as e:
             self.logger.error(f"Error in reduce_results: {e}")
