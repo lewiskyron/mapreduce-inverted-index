@@ -80,10 +80,10 @@ docker-compose down && docker-compose up --build
 ❯ curl -X POST http://localhost:5001/scrape
 ```
 
-3. Runing on PwStern Computers
-1. ssh into the machine 
-2. cd into `mapreduce-swarm`
-3. ls and check the docker-compose.yml file exists 
+### Option 3: Runing on PwStern Computers
+- ssh into the machine
+- cd into `mapreduce-swarm`
+- ls and check the docker-compose.yml file exists 
 
 if not use vim to create one inside here 
 here is the docker-compose.yml file
@@ -184,8 +184,14 @@ networks:
 ```
 
 ### Run 
+```bash
 docker stack rm mapreduce_stack
+```
+
+To check if the services are running run:
+```bash
 docker service ls
+```
 
 ### Logs 
 - docker service logs -f mapreduce_stack_master-service
