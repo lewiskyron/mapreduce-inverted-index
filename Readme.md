@@ -144,13 +144,20 @@ docker stack rm mapreduce_stack
 docker service ls
 
 ### Logs 
-docker service logs -f mapreduce_stack_master-service
-docker service logs -f mapreduce_stack_mapper-service-1
-docker service logs -f mapreduce_stack_mapper-service-2
-docker service logs -f mapreduce_stack_reducer-service
+- docker service logs -f mapreduce_stack_master-service
+- docker service logs -f mapreduce_stack_mapper-service-1
+- docker service logs -f mapreduce_stack_mapper-service-2
+- docker service logs -f mapreduce_stack_reducer-service
 
-if master on cs1 run curl -X POST -v http://192.168.86.67:5001/scrape to scrap the data
-if master on cs2 run curl -X POST -v http://192.168.86.48:5001/scrape to scrap the data
+if master on cs1 run 
+```bash
+curl -X POST -v http://192.168.86.67:5001/scrape to scrap the data
+```
+
+if master on cs2 run 
+```bash
+curl -X POST -v http://192.168.86.48:5001/scrape to scrap the data
+```
 
 ### Loom Demo
 https://www.loom.com/share/892d034e8b1448c8bc39832efbd1a5c1?sid=e7236f9c-1205-4f46-a65c-db2b701e3e9b
