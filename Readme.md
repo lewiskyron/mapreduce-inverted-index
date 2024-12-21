@@ -136,7 +136,51 @@ services:
       - MAPPER_ID=2
     deploy:
       placement:
-        max_replic
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+    depends_on:
+      - master-service
+
+  mapper-service-3:
+    image: kyronnyoro/mapreduce-mapper:scaled
+    expose:
+      - "5002"
+    networks:
+      - kyron-overlay-net
+    environment:
+      - MASTER_URL=http://master-service:5001
+      - MAPPER_URL=http://mapper-service-3:5002
+      - MAPPER_ID=3
+    deploy:
+      placement:
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+    depends_on:
+      - master-service
+
+  reducer-service:
+    image: kyronnyoro/mapreduce-reducer:scaled
+    expose:
+      - "5003"
+    networks:
+      - kyron-overlay-net
+    environment:
+      - MASTER_URL=http://master-service:5001
+      - REDUCER_URL=http://reducer-service:5003
+      - REDUCER_ID=1
+    deploy:
+      placement:
+        max_replicas_per_node: 1
+      restart_policy:
+        condition: on-failure
+    depends_on:
+      - master-service
+
+networks:
+  kyron-overlay-net:
+    external: true
 ```
 
 ### Run 
